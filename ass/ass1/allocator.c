@@ -16,17 +16,23 @@
 #define MAGIC_FREE     0xDEADBEEF
 #define MAGIC_ALLOC    0xBEEFDEAD
 
+
+/* typedef unsigned int u_int32_t; */
 typedef unsigned char byte;
 typedef u_int32_t vlink_t;
 typedef u_int32_t vsize_t;
 typedef u_int32_t vaddr_t;
 
 typedef struct free_list_header {
-   u_int32_t magic;  // ought to contain MAGIC_FREE
-   vsize_t size;     // # bytes in this block (including header)
-   vlink_t next;     // memory[] index of next free block
-   vlink_t prev;     // memory[] index of previous free block
+	u_int32_t magic;  // ought to contain MAGIC_FREE
+	vsize_t size;     // # bytes in this block (including header)
+	vlink_t next;     // memory[] index of next free block
+	vlink_t prev;     // memory[] index of previous free block
 } free_header_t;
+
+void header_create(vsize_t size, vlink_t next, vlink_t prev, vaddr_t ptr, int magic);
+free_header_t * point_offset(vlink_t offset);
+void showHeaderInfo(free_header_t* header);
 
 // Global data
 
@@ -45,14 +51,56 @@ static vsize_t memory_size;   // number of bytes malloc'd in memory[]
 
 void vlad_init(u_int32_t size)
 {
-   // dummy statements to keep compiler happy
-   memory = NULL;
-   free_list_ptr = (vaddr_t)0;
-   memory_size = 0;
-   // TODO
-   // remove the above when you implement your code
+	// dummy statements to keep compiler happy
+	/* memory = NULL; */
+	/* free_list_ptr = (vaddr_t)0; */
+	/* memory_size = 0; */
+	// TODO
+	// remove the above when you implement your code
+	int power = 0;
+	vsize_t temp;
+	while ( temp != 1) {
+		temp = size >> power;
+		power++;
+	}
+	if ( power < 9 ){
+		memory = malloc(sizeof(byte) * 512);
+		free_list_ptr = 0;
+		memory_size = 512;
+	} else { 
+		memory = malloc(sizeof(byte) * size);
+		free_list_ptr = 0;
+		memory_size = size;
+	}
+	if (memory == NULL){
+		fprintf(stderr, "vlad_init: insufficient memory");
+		abort();
+	}
+	header_create(memory_size, 0, 0, free_list_ptr, MAGIC_FREE);
 }
 
+
+void header_create(vsize_t size, vlink_t next, vlink_t prev, vaddr_t ptr, int magic)
+{
+	free_header_t * header = point_offset(ptr);
+	header->size = size;
+	header->next = next;
+	header->prev = prev;
+	header->magic = magic == MAGIC_FREE ? MAGIC_FREE : MAGIC_ALLOC;
+}
+	
+free_header_t * point_offset(vlink_t offset)
+{
+	byte * ptr = (byte *) memory ;
+	ptr = ptr + offset;
+	free_header_t * link = (free_header_t *) ptr;
+	return link;
+}
+
+void showHeaderInfo(free_header_t* header) 
+{
+printf("\tChunk index %ld, size %d, tag %s, next %d, prev %d\n", (void*)header - (void*)memory, header->size, (header->magic == MAGIC_FREE) ? "FREE" : "ALLOC", header->next, header->prev);
+}
 
 // Input: n - number of bytes requested
 // Output: p - a pointer, or NULL
@@ -62,10 +110,72 @@ void vlad_init(u_int32_t size)
 //                      for a newly-allocated region of some size >= 
 //                      n + header size.
 
-void *vlad_malloc(u_int32_t n)
+void * vlad_malloc(u_int32_t n)
 {
-   // TODO
-   return NULL; // temporarily
+	free_header_t * ptr_last;
+	free_header_t * ptr_next;
+	void * result = NULL;
+	int flag = 0;
+	int count = 0;
+	u_int32_t size = (n + sizeof(free_header_t));
+	vaddr_t link = free_list_ptr;
+	vaddr_t allocLink = 0;
+	vsize_t allocArea = 0;
+	vsize_t tempSize = 0;
+	free_header_t * ptr = point_offset(link);
+	while (link != free_list_ptr || flag == 0){
+		if (ptr->magic != MAGIC_FREE){
+			abort(); // CHANGE AFTER
+		}
+		tempSize = (ptr->size > size) ? ptr->size : tempSize;
+		if ((tempSize < allocArea || allocArea == 0) && tempSize != 0){
+			allocArea = tempSize;
+			allocLink = link;
+		}
+		link = ptr->next;
+		ptr = point_offset(link);
+		flag = 1;
+	}
+	if (tempSize == 0){
+		printf("NO SIZE\n");
+		abort();
+	}
+	
+	while( allocArea >= 2 * size ) {
+		showHeaderInfo(ptr);
+		showHeaderInfo(point_offset(ptr->next));
+		ptr = point_offset(allocLink);
+		ptr_next = point_offset(ptr->next);
+		vaddr_t new_addr = allocLink + (ptr->size + sizeof(free_header_t))/2;
+		header_create(allocLink +(ptr->size - sizeof(free_header_t))/2,  \
+				(ptr->next == allocLink) ? new_addr : ptr->next, \
+				(ptr->next == allocLink) ? new_addr : ptr->prev, new_addr , MAGIC_FREE);
+		if (count >= 1){
+			ptr_next->prev = new_addr; 
+		}
+		ptr->prev = (ptr->prev == allocLink) ? new_addr : ptr->prev;
+		ptr->next = new_addr;
+		ptr->size = allocLink + (ptr->size - sizeof(free_header_t))/2;
+		allocArea = ptr->size;
+		count++;
+	}
+	ptr_next = point_offset(ptr->next);
+	ptr_last = point_offset(ptr->prev);
+	ptr_last->next =  ptr->next;
+	ptr_next->prev =  ptr->prev;
+	ptr->magic = MAGIC_ALLOC;
+	result = (void *) point_offset(allocLink + 4);
+	ptr = point_offset(free_list_ptr);
+	showHeaderInfo(ptr);
+	showHeaderInfo(point_offset(ptr->next));
+	while (ptr->magic != MAGIC_FREE){
+		free_list_ptr = ptr->next;
+		ptr = point_offset(ptr->next);
+		if (ptr == point_offset(free_list_ptr)){
+			break;
+		}
+	}
+	return result; // temporarily
 }
 
 
@@ -78,7 +188,7 @@ void *vlad_malloc(u_int32_t n)
 
 void vlad_free(void *object)
 {
-   // TODO
+	// TODO
 }
 
 
@@ -88,8 +198,11 @@ void vlad_free(void *object)
 
 void vlad_end(void)
 {
-   // TODO
+	assert(memory != NULL);
+	free(memory);
+	memory = NULL;
 }
+
 
 
 // Precondition: allocator has been vlad_init()'d
@@ -97,12 +210,14 @@ void vlad_end(void)
 
 void vlad_stats(void)
 {
-   // TODO
-   // put whatever code you think will help you
-   // understand Vlad's current state in this function
-   // REMOVE all pfthese statements when your vlad_malloc() is done
-   printf("vlad_stats() won't work until vlad_malloc() works\n");
-   return;
+	int flag = 0;
+	free_header_t * ptr = point_offset(free_list_ptr);
+	while (ptr != point_offset(free_list_ptr) || flag == 0){
+		showHeaderInfo(ptr);
+		ptr = point_offset(ptr->next);
+		flag = 1;
+	}
+	return;
 }
 
 
@@ -145,7 +260,7 @@ typedef struct point {int x, y;} point;
 
 static point offset_to_point(int offset,  int size, int is_end);
 static void fill_block(char graph[STAT_HEIGHT][STAT_WIDTH][20], 
-                        int offset, char * label);
+		int offset, char * label);
 
 
 
@@ -153,136 +268,136 @@ static void fill_block(char graph[STAT_HEIGHT][STAT_WIDTH][20],
 // Note, This is limited to memory_sizes of under 16MB
 void vlad_reveal(void *alpha[26])
 {
-    int i, j;
-    vlink_t offset;
-    char graph[STAT_HEIGHT][STAT_WIDTH][20];
-    char free_sizes[26][32];
-    char alloc_sizes[26][32];
-    char label[3]; // letters for used memory, numbers for free memory
-    int free_count, alloc_count, max_count;
-    free_header_t * block;
+	int i, j;
+	vlink_t offset;
+	char graph[STAT_HEIGHT][STAT_WIDTH][20];
+	char free_sizes[26][32];
+	char alloc_sizes[26][32];
+	char label[3]; // letters for used memory, numbers for free memory
+	int free_count, alloc_count, max_count;
+	free_header_t * block;
 
-	// TODO
-	// REMOVE these statements when your vlad_malloc() is done
-    printf("vlad_reveal() won't work until vlad_malloc() works\n");
-    return;
+	/* // TODO */
+	/* // REMOVE these statements when your vlad_malloc() is done */
+	/* printf("vlad_reveal() won't work until vlad_malloc() works\n"); */
+	/* return; */
 
-    // initilise size lists
-    for (i=0; i<26; i++) {
-        free_sizes[i][0]= '\0';
-        alloc_sizes[i][0]= '\0';
-    }
+	// initilise size lists
+	for (i=0; i<26; i++) {
+		free_sizes[i][0]= '\0';
+		alloc_sizes[i][0]= '\0';
+	}
 
-    // Fill graph with free memory
-    offset = 0;
-    i = 1;
-    free_count = 0;
-    while (offset < memory_size){
-        block = (free_header_t *)(memory + offset);
-        if (block->magic == MAGIC_FREE) {
-            snprintf(free_sizes[free_count++], 32, 
-                "%d) %d bytes", i, block->size);
-            snprintf(label, 3, "%d", i++);
-            fill_block(graph, offset,label);
-        }
-        offset += block->size;
-    }
+	// Fill graph with free memory
+	offset = 0;
+	i = 1;
+	free_count = 0;
+	while (offset < memory_size){
+		block = (free_header_t *)(memory + offset);
+		if (block->magic == MAGIC_FREE) {
+			snprintf(free_sizes[free_count++], 32, 
+					"%d) %d bytes", i, block->size);
+			snprintf(label, 3, "%d", i++);
+			fill_block(graph, offset,label);
+		}
+		offset += block->size;
+	}
 
-    // Fill graph with allocated memory
-    alloc_count = 0;
-    for (i=0; i<26; i++) {
-        if (alpha[i] != NULL) {
-            offset = ((byte *) alpha[i] - (byte *) memory) - HEADER_SIZE;
-            block = (free_header_t *)(memory + offset);
-            snprintf(alloc_sizes[alloc_count++], 32, 
-                "%c) %d bytes", 'a' + i, block->size);
-            snprintf(label, 3, "%c", 'a' + i);
-            fill_block(graph, offset,label);
-        }
-    }
+	// Fill graph with allocated memory
+	alloc_count = 0;
+	for (i=0; i<26; i++) {
+		if (alpha[i] != NULL) {
+			offset = ((byte *) alpha[i] - (byte *) memory) - HEADER_SIZE;
+			block = (free_header_t *)(memory + offset);
+			snprintf(alloc_sizes[alloc_count++], 32, 
+					"%c) %d bytes", 'a' + i, block->size);
+			snprintf(label, 3, "%c", 'a' + i);
+			fill_block(graph, offset,label);
+		}
+	}
 
-    // Print all the memory!
-    for (i=0; i<STAT_HEIGHT; i++) {
-        for (j=0; j<STAT_WIDTH; j++) {
-            printf("%s", graph[i][j]);
-        }
-        printf("\n");
-    }
+	// Print all the memory!
+	for (i=0; i<STAT_HEIGHT; i++) {
+		for (j=0; j<STAT_WIDTH; j++) {
+			printf("%s", graph[i][j]);
+		}
+		printf("\n");
+	}
 
-    //Print table of sizes
-    max_count = (free_count > alloc_count)? free_count: alloc_count;
-    printf(FG_FREE"%-32s"CL_RESET, "Free");
-    if (alloc_count > 0){
-        printf(FG_ALLOC"%s\n"CL_RESET, "Allocated");
-    } else {
-        printf("\n");
-    }
-    for (i=0; i<max_count;i++) {
-        printf("%-32s%s\n", free_sizes[i], alloc_sizes[i]);
-    }
+	//Print table of sizes
+	max_count = (free_count > alloc_count)? free_count: alloc_count;
+	printf(FG_FREE"%-32s"CL_RESET, "Free");
+	if (alloc_count > 0){
+		printf(FG_ALLOC"%s\n"CL_RESET, "Allocated");
+	} else {
+		printf("\n");
+	}
+	for (i=0; i<max_count;i++) {
+		printf("%-32s%s\n", free_sizes[i], alloc_sizes[i]);
+	}
 
 }
 
 // Fill block area
 static void fill_block(char graph[STAT_HEIGHT][STAT_WIDTH][20], 
-                        int offset, char * label)
+		int offset, char * label)
 {
-    point start, end;
-    free_header_t * block;
-    char * color;
-    char text[3];
-    block = (free_header_t *)(memory + offset);
-    start = offset_to_point(offset, memory_size, 0);
-    end = offset_to_point(offset + block->size, memory_size, 1);
-    color = (block->magic == MAGIC_FREE) ? BG_FREE: BG_ALLOC;
+	point start, end;
+	free_header_t * block;
+	char * color;
+	char text[3];
+	block = (free_header_t *)(memory + offset);
+	start = offset_to_point(offset, memory_size, 0);
+	end = offset_to_point(offset + block->size, memory_size, 1);
+	color = (block->magic == MAGIC_FREE) ? BG_FREE: BG_ALLOC;
 
-    int x, y;
-    for (y=start.y; y < end.y; y++) {
-        for (x=start.x; x < end.x; x++) {
-            if (x == start.x && y == start.y) {
-                // draw top left corner
-                snprintf(text, 3, "|%s", label);
-            } else if (x == start.x && y == end.y - 1) {
-                // draw bottom left corner
-                snprintf(text, 3, "|_");
-            } else if (y == end.y - 1) {
-                // draw bottom border
-                snprintf(text, 3, "__");
-            } else if (x == start.x) {
-                // draw left border
-                snprintf(text, 3, "| ");
-            } else {
-                snprintf(text, 3, "  ");
-            }
-            sprintf(graph[y][x], "%s%s"CL_RESET, color, text);            
-        }
-    }
+	int x, y;
+	for (y=start.y; y < end.y; y++) {
+		for (x=start.x; x < end.x; x++) {
+			if (x == start.x && y == start.y) {
+				// draw top left corner
+				snprintf(text, 3, "|%s", label);
+			} else if (x == start.x && y == end.y - 1) {
+				// draw bottom left corner
+				snprintf(text, 3, "|_");
+			} else if (y == end.y - 1) {
+				// draw bottom border
+				snprintf(text, 3, "__");
+			} else if (x == start.x) {
+				// draw left border
+				snprintf(text, 3, "| ");
+			} else {
+				snprintf(text, 3, "  ");
+			}
+			sprintf(graph[y][x], "%s%s"CL_RESET, color, text);            
+		}
+	}
 }
 
 // Converts offset to coordinate
 static point offset_to_point(int offset,  int size, int is_end)
 {
-    int pot[2] = {STAT_WIDTH, STAT_HEIGHT}; // potential XY
-    int crd[2] = {0};                       // coordinates
-    int sign = 1;                           // Adding/Subtracting
-    int inY = 0;                            // which axis context
-    int curr = size >> 1;                   // first bit to check
-    point c;                                // final coordinate
-    if (is_end) {
-        offset = size - offset;
-        crd[0] = STAT_WIDTH;
-        crd[1] = STAT_HEIGHT;
-        sign = -1;
-    }
-    while (curr) {
-        pot[inY] >>= 1;
-        if (curr & offset) {
-            crd[inY] += pot[inY]*sign; 
-        }
-        inY = !inY; // flip which axis to look at
-        curr >>= 1; // shift to the right to advance
-    }
-    c.x = crd[0];
-    c.y = crd[1];
-    return c;
+	int pot[2] = {STAT_WIDTH, STAT_HEIGHT}; // potential XY
+	int crd[2] = {0};                       // coordinates
+	int sign = 1;                           // Adding/Subtracting
+	int inY = 0;                            // which axis context
+	int curr = size >> 1;                   // first bit to check
+	point c;                                // final coordinate
+	if (is_end) {
+		offset = size - offset;
+		crd[0] = STAT_WIDTH;
+		crd[1] = STAT_HEIGHT;
+		sign = -1;
+	}
+	while (curr) {
+		pot[inY] >>= 1;
+		if (curr & offset) {
+			crd[inY] += pot[inY]*sign; 
+		}
+		inY = !inY; // flip which axis to look at
+		curr >>= 1; // shift to the right to advance
+	}
+	c.x = crd[0];
+	c.y = crd[1];
+	return c;
 }

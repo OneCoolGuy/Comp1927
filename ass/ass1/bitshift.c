@@ -4,10 +4,12 @@
 
 int main()
 {
-	unsigned int i = 256;
+	unsigned int i = 512;
+	i = i >> 8;
 	char * c = (char *)&i;
-	printf("%x\n", c);
-	printf("%i\n", c);
+
+	printf("%c\n", *c);
+	printf("%i\n", *c);
 	printf("%x\n", i);
 	printf("%i\n", i);
 	return 0;
