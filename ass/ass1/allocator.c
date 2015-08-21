@@ -33,6 +33,7 @@ typedef struct free_list_header {
 void header_create(vsize_t size, vlink_t next, vlink_t prev, vaddr_t ptr, int magic);
 free_header_t * point_offset(vlink_t offset);
 void showHeaderInfo(free_header_t* header);
+int power_of_two(u_int32_t n);
 
 // Global data
 
@@ -58,11 +59,7 @@ void vlad_init(u_int32_t size)
 	// TODO
 	// remove the above when you implement your code
 	int power = 0;
-	vsize_t temp;
-	while ( temp != 1) {
-		temp = size >> power;
-		power++;
-	}
+	power = power_of_two(size);
 	if ( power < 9 ){
 		memory = malloc(sizeof(byte) * 512);
 		free_list_ptr = 0;
@@ -99,7 +96,22 @@ free_header_t * point_offset(vlink_t offset)
 
 void showHeaderInfo(free_header_t* header) 
 {
-printf("\tChunk index %ld, size %d, tag %s, next %d, prev %d\n", (void*)header - (void*)memory, header->size, (header->magic == MAGIC_FREE) ? "FREE" : "ALLOC", header->next, header->prev);
+printf("\tChunk index %d, size %d, tag %s, next %d, prev %d\n", (void*)header - (void*)memory, header->size, (header->magic == MAGIC_FREE) ? "FREE" : "ALLOC", header->next, header->prev);
+}
+
+int power_of_two(u_int32_t size)
+{
+	int count = 0;
+	int power = 0;
+	int i = 0;
+	for (i = 0; i < 31 ; i++){
+		if ((size & ( 1 << i)) >> i == 1){
+			count++;
+			power = i;
+		}
+	}
+	power = (count > 1) ? power + 1 : power;
+	return power;
 }
 
 // Input: n - number of bytes requested
@@ -117,17 +129,23 @@ void * vlad_malloc(u_int32_t n)
 	void * result = NULL;
 	int flag = 0;
 	int count = 0;
-	u_int32_t size = (n + sizeof(free_header_t));
+	int power;
+	u_int32_t size;
 	vaddr_t link = free_list_ptr;
 	vaddr_t allocLink = 0;
 	vsize_t allocArea = 0;
 	vsize_t tempSize = 0;
 	free_header_t * ptr = point_offset(link);
+	
+	power = power_of_two(n + sizeof(struct free_list_header));
+	size = 1 << power;
+
+
 	while (link != free_list_ptr || flag == 0){
 		if (ptr->magic != MAGIC_FREE){
 			abort(); // CHANGE AFTER
 		}
-		tempSize = (ptr->size > size) ? ptr->size : tempSize;
+		tempSize = (ptr->size > size) ? ptr->size : tempSize; // changes tempSize to be the the size of the area if it's bigger or equal to size
 		if ((tempSize < allocArea || allocArea == 0) && tempSize != 0){
 			allocArea = tempSize;
 			allocLink = link;
@@ -141,13 +159,13 @@ void * vlad_malloc(u_int32_t n)
 		abort();
 	}
 	
-	while( allocArea >= 2 * size ) {
+	while( allocArea > size ) {
 		showHeaderInfo(ptr);
 		showHeaderInfo(point_offset(ptr->next));
 		ptr = point_offset(allocLink);
 		ptr_next = point_offset(ptr->next);
-		vaddr_t new_addr = allocLink + (ptr->size + sizeof(free_header_t))/2;
-		header_create(allocLink +(ptr->size - sizeof(free_header_t))/2,  \
+		vaddr_t new_addr = allocLink + (ptr->size)/2;
+		header_create((ptr->size)/2,  \
 				(ptr->next == allocLink) ? new_addr : ptr->next, \
 				(ptr->next == allocLink) ? new_addr : ptr->prev, new_addr , MAGIC_FREE);
 		if (count >= 1){
@@ -155,7 +173,7 @@ void * vlad_malloc(u_int32_t n)
 		}
 		ptr->prev = (ptr->prev == allocLink) ? new_addr : ptr->prev;
 		ptr->next = new_addr;
-		ptr->size = allocLink + (ptr->size - sizeof(free_header_t))/2;
+		ptr->size = (ptr->size)/2;
 		allocArea = ptr->size;
 		count++;
 	}
@@ -211,7 +229,11 @@ void vlad_end(void)
 void vlad_stats(void)
 {
 	int flag = 0;
+
+
 	free_header_t * ptr = point_offset(free_list_ptr);
+	free_header_t * ptr2 = (free_header_t *) memory;
+	showHeaderInfo(ptr2);
 	while (ptr != point_offset(free_list_ptr) || flag == 0){
 		showHeaderInfo(ptr);
 		ptr = point_offset(ptr->next);

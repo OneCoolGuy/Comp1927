@@ -1,7 +1,7 @@
 # COMP1927 14s2 - Assignment 1 Makefile
 
 CC=gcc
-CFLAGS=-Wall -Werror
+CFLAGS=-Wall -Werror -gdwarf-2
 
 vlad : vlad.o allocator.o
 
