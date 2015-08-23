@@ -132,9 +132,9 @@ void * vlad_malloc(u_int32_t n)
 	int power;
 	u_int32_t size;
 	vaddr_t link = free_list_ptr;
-	vaddr_t allocLink = 0;
-	vsize_t allocArea = 0;
-	vsize_t tempSize = 0;
+	vaddr_t allocLink = 0; // link that is supposed tobe the one allocated
+	vsize_t allocArea = 0; // size of the allocated area
+	vsize_t tempSize = 0; // temporary size used to compare and choose the area to be allocated
 	free_header_t * ptr = point_offset(link);
 	
 	power = power_of_two(n + sizeof(struct free_list_header));
@@ -143,9 +143,9 @@ void * vlad_malloc(u_int32_t n)
 
 	while (link != free_list_ptr || flag == 0){
 		if (ptr->magic != MAGIC_FREE){
-			abort(); // CHANGE AFTER
+			return NULL;
 		}
-		tempSize = (ptr->size > size) ? ptr->size : tempSize; // changes tempSize to be the the size of the area if it's bigger or equal to size
+		tempSize = (ptr->size >= size) ? ptr->size : tempSize; // changes tempSize to be the the size of the area if it's bigger or equal to size
 		if ((tempSize < allocArea || allocArea == 0) && tempSize != 0){
 			allocArea = tempSize;
 			allocLink = link;
@@ -155,15 +155,18 @@ void * vlad_malloc(u_int32_t n)
 		flag = 1;
 	}
 	if (tempSize == 0){
-		printf("NO SIZE\n");
+		printf("NO SIZE\n"); // if there is no space to alloc print this
 		abort();
 	}
+
+	ptr = point_offset(allocLink); //makes ptr to point to the right link
+	ptr_next = point_offset(ptr->next); // makes ptr point to the next after the link
 	
 	while( allocArea > size ) {
 		showHeaderInfo(ptr);
 		showHeaderInfo(point_offset(ptr->next));
-		ptr = point_offset(allocLink);
-		ptr_next = point_offset(ptr->next);
+		ptr = point_offset(allocLink); //makes ptr to point to the right link
+		ptr_next = point_offset(ptr->next); // makes ptr point to the next after the link
 		vaddr_t new_addr = allocLink + (ptr->size)/2;
 		header_create((ptr->size)/2,  \
 				(ptr->next == allocLink) ? new_addr : ptr->next, \
@@ -182,7 +185,7 @@ void * vlad_malloc(u_int32_t n)
 	ptr_last->next =  ptr->next;
 	ptr_next->prev =  ptr->prev;
 	ptr->magic = MAGIC_ALLOC;
-	result = (void *) point_offset(allocLink + 4);
+	result = (void *) point_offset(allocLink + 16); // sets the result to be in the first byte after the header
 	ptr = point_offset(free_list_ptr);
 	showHeaderInfo(ptr);
 	showHeaderInfo(point_offset(ptr->next));
@@ -228,12 +231,18 @@ void vlad_end(void)
 
 void vlad_stats(void)
 {
+	// prints all the different partitions
 	int flag = 0;
+	int flag2 = 0;
 
 
 	free_header_t * ptr = point_offset(free_list_ptr);
 	free_header_t * ptr2 = (free_header_t *) memory;
-	showHeaderInfo(ptr2);
+	while ( ptr2 != point_offset(free_list_ptr) || flag2 == 0){
+		showHeaderInfo(ptr2);
+		ptr2 = point_offset(ptr2->next);
+		flag2 = 1;
+	}
 	while (ptr != point_offset(free_list_ptr) || flag == 0){
 		showHeaderInfo(ptr);
 		ptr = point_offset(ptr->next);
