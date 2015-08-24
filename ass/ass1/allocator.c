@@ -209,6 +209,36 @@ void * vlad_malloc(u_int32_t n)
 
 void vlad_free(void *object)
 {
+	free_header_t * ptr_next = NULL; // pointer to the next free memory
+	free_header_t * ptr_prev = NULL; // pointer to the previous free meomry
+	free_header_t * ptr = (free_header_t *) (object - HEADER_SIZE); // poitner to the region being freed
+	free_header_t * temp_ptr = ptr; // pointer used to transverse the list
+	vlink_t link_next = 0xACDCACDC;
+	vlink_t link_prev = 0xACDCACDC;
+	vlink_t link = ((byte *) object - memory); // memory index to the area being freed
+	vlink_t temp_link = link;//momery index used to tranverse the list
+	int count = 0; // count to see how far is the other free region;
+	while (((temp_link + temp_ptr->size) < memory_size)){ // loop to find where should 
+		temp_link = temp_link + temp_ptr->size; // memory index to the enxt header
+		temp_ptr = point_offset(temp_link); // points to the next header
+		if (temp_ptr->magic == MAGIC_FREE){
+			if (count = 0 && temp_ptr->size == ptr->size){
+				//vlad_merge(ptr, temp_ptr); // TODO WHEN VLAD_MERGE IS READY
+				temp_ptr = ptr;
+				temp_link = link;
+				count = -1;
+			} else {
+				ptr_next = temp_ptr;
+				link_next = temp_link;
+				break;
+			}
+		}
+		count++;
+	}
+		
+
+
+	
 	// TODO
 }
 
