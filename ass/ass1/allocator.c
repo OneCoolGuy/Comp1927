@@ -35,6 +35,7 @@ free_header_t * point_offset(vlink_t offset);
 void showHeaderInfo(free_header_t* header);
 int power_of_two(u_int32_t n);
 void vlad_merge(vaddr_t region, vaddr_t adj_region);
+int merge_test(vaddr_t link1, vaddr_t link2 , vsize_t size);
 
 // Global data
 
@@ -122,6 +123,15 @@ void showHeaderInfo(free_header_t* header)
 printf("\tChunk index %d, size %d, tag %s, next %d, prev %d\n", (void*)header - (void*)memory, header->size, (header->magic == MAGIC_FREE) ? "FREE" : "ALLOC", header->next, header->prev);
 }
 
+int merge_test(vaddr_t link1, vaddr_t link2 , vsize_t size)
+{
+	vaddr_t start = (link1 > link2) ? link2 : link1;
+	if ((memory_size - start) % size == 0 && ((memory_size - (start + size)) % size == 0)){
+		return 1;
+	}
+	return 0;
+}
+
 int power_of_two(u_int32_t size)
 {
 	int count = 0;
@@ -190,13 +200,11 @@ void * vlad_malloc(u_int32_t n)
 		showHeaderInfo(point_offset(ptr->next));
 		ptr = point_offset(allocLink); //makes ptr to point to the right link
 		ptr_next = point_offset(ptr->next); // makes ptr point to the next after the link
-		vaddr_t new_addr = allocLink + (ptr->size)/2;
+		vaddr_t new_addr = allocLink + (ptr->size)/2; 
 		header_create((ptr->size)/2,  \
 				(ptr->next == allocLink) ? new_addr : ptr->next, \
 				(ptr->next == allocLink) ? new_addr : ptr->prev, new_addr , MAGIC_FREE);
-		if (count >= 1){
-			ptr_next->prev = new_addr; 
-		}
+		ptr_next->prev = new_addr; 
 		ptr->prev = (ptr->prev == allocLink) ? new_addr : ptr->prev;
 		ptr->next = new_addr;
 		ptr->size = (ptr->size)/2;
@@ -205,8 +213,8 @@ void * vlad_malloc(u_int32_t n)
 	}
 	ptr_next = point_offset(ptr->next);
 	ptr_last = point_offset(ptr->prev);
-	if ( ptr_last->prev == link){ // if there are only two regions when the fragmentation started
-		ptr_last->prev = (link + (ptr->size << (count - 1))); // make it point to the first 
+	if ( ptr_last->prev == allocLink){ // if there are only two regions when the fragmentation started
+		ptr_last->prev = (allocLink + (ptr->size << (count - 1))); // make it point to the first 
 	}
 	if (ptr == point_offset(ptr->next)){ // if there is only one region to be allocated vlad_malloc should return NULL
 		return NULL;
@@ -252,7 +260,7 @@ void vlad_free(void *object)
 		temp_link = temp_link + temp_ptr->size; // memory index to the enxt header
 		temp_ptr = point_offset(temp_link); // points to the next header
 		if (temp_ptr->magic == MAGIC_FREE){
-			if ((count == 0) && (temp_ptr->size == ptr->size)){
+			if (merge_test(link, temp_link, ptr->size *2) && (count == 0) && (temp_ptr->size == ptr->size)){
 				vlad_merge(link, temp_link); // TODO WHEN VLAD_MERGE IS READY
 				temp_ptr = ptr;
 				temp_link = link;
@@ -271,7 +279,8 @@ void vlad_free(void *object)
 	count = 0;
 	while (flag == 1){
 		if(temp_ptr->next > link || (temp_ptr->next == free_list_ptr && count !=0 )){
-			if (count == 0 && (link + ptr_next->size == link_next && ptr_next->size == ptr->size)){
+			if (merge_test(link, temp_link, ptr->size * 2) && ptr_next != NULL \
+					&& count == 0 && (link + ptr_next->size == link_next && ptr_next->size == ptr->size)){
 				temp_link = link_next;
 				link_next = ptr_next->next;
 				ptr_next = point_offset(link_next);
@@ -279,7 +288,7 @@ void vlad_free(void *object)
 				temp_link = free_list_ptr;
 				temp_ptr = point_offset(free_list_ptr);
 				count = -1;
-			} else if (temp_link + temp_ptr->size == link && temp_ptr->size == ptr->size){
+			} else if (merge_test(link, temp_link, ptr->size * 2) && temp_link + temp_ptr->size == link && temp_ptr->size == ptr->size){
 				vlad_merge(link, temp_link);
 				ptr = temp_ptr; // sets pointer to the new header
 				link = temp_link;
@@ -298,7 +307,7 @@ void vlad_free(void *object)
 		}
 		count++;
 	}
-	if ( link_next == link_prev){
+	if (link_next == link_prev){
 		ptr->prev = link;
 		ptr->next = link;
 		ptr->magic = MAGIC_FREE;
