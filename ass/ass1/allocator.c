@@ -189,7 +189,7 @@ void * vlad_malloc(u_int32_t n)
 	}
 	if (tempSize == 0){
 		printf("NO SIZE\n"); // if there is no space to alloc print this
-		abort();
+		return NULL;
 	}
 
 	ptr = point_offset(allocLink); //makes ptr to point to the right link
@@ -279,8 +279,8 @@ void vlad_free(void *object)
 	count = 0;
 	while (flag == 1){
 		if(temp_ptr->next > link || (temp_ptr->next == free_list_ptr && count !=0 )){
-			if (merge_test(link, temp_link, ptr->size * 2) && ptr_next != NULL \
-					&& count == 0 && (link + ptr_next->size == link_next && ptr_next->size == ptr->size)){
+			if (merge_test(link, link + ptr->size , ptr->size * 2) && point_offset(link + ptr->size) != NULL \
+					&& ((point_offset(link + ptr->size)->magic == MAGIC_FREE) && point_offset(link + ptr->size)->size == ptr->size)){
 				temp_link = link_next;
 				link_next = ptr_next->next;
 				ptr_next = point_offset(link_next);
@@ -331,7 +331,7 @@ void vlad_free(void *object)
 		ptr->prev = link_prev;
 		ptr->next = link_next;
 		ptr_prev->next = link;
-		ptr_prev->prev = link;
+		ptr_next->prev = link;
 		ptr->magic = MAGIC_FREE;
 	}
 }
