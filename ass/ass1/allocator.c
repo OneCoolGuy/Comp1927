@@ -103,7 +103,9 @@ void vlad_merge(vaddr_t region, vaddr_t adj_region)
 	free_header_t * ptr_next = point_offset(adj_region_ptr->next);
 	free_header_t * ptr_prev = point_offset(adj_region_ptr->prev);
 	if (region < adj_region){
-		free_list_ptr = (free_list_ptr == adj_region) ? adj_region_ptr->next : free_list_ptr; // if the adj_region was the free pointer change it to the new region
+		if (free_list_ptr == adj_region){
+			free_list_ptr = (adj_region_ptr->next == free_list_ptr) ? region : adj_region_ptr->next; // in case of the adj region that is being merged
+		}																							// is the only free area 
 		ptr_next->prev = adj_region_ptr->prev;
 		ptr_prev->next = adj_region_ptr->next;
 		region_ptr->size = region_ptr->size << 1;
@@ -157,7 +159,7 @@ int power_of_two(u_int32_t size)
 
 void * vlad_malloc(u_int32_t n)
 {
-	free_header_t * ptr_last;
+	free_header_t * ptr_prev;
 	free_header_t * ptr_next;
 	void * result = NULL;
 	int flag = 0;
@@ -188,7 +190,6 @@ void * vlad_malloc(u_int32_t n)
 		flag = 1;
 	}
 	if (tempSize == 0){
-		printf("NO SIZE\n"); // if there is no space to alloc print this
 		return NULL;
 	}
 
@@ -196,8 +197,6 @@ void * vlad_malloc(u_int32_t n)
 	ptr_next = point_offset(ptr->next); // makes ptr point to the next after the link
 	
 	while( allocArea > size ) {
-		showHeaderInfo(ptr);
-		showHeaderInfo(point_offset(ptr->next));
 		ptr = point_offset(allocLink); //makes ptr to point to the right link
 		ptr_next = point_offset(ptr->next); // makes ptr point to the next after the link
 		vaddr_t new_addr = allocLink + (ptr->size)/2; 
@@ -212,20 +211,18 @@ void * vlad_malloc(u_int32_t n)
 		count++;
 	}
 	ptr_next = point_offset(ptr->next);
-	ptr_last = point_offset(ptr->prev);
-	if ( ptr_last->prev == allocLink){ // if there are only two regions when the fragmentation started
-		ptr_last->prev = (allocLink + (ptr->size << (count - 1))); // make it point to the first 
+	ptr_prev = point_offset(ptr->prev);
+	if ( ptr_prev->prev == allocLink){ // if there are only two regions when the fragmentation started
+		ptr_prev->prev = (allocLink + (ptr->size << (count - 1))); // make it point to the first 
 	}
 	if (ptr == point_offset(ptr->next)){ // if there is only one region to be allocated vlad_malloc should return NULL
 		return NULL;
 	}
-	ptr_last->next =  ptr->next;
+	ptr_prev->next =  ptr->next;
 	ptr_next->prev =  ptr->prev;
 	ptr->magic = MAGIC_ALLOC;
 	result = (void *) point_offset(allocLink + 16); // sets the result to be in the first byte after the header
 	ptr = point_offset(free_list_ptr);
-	showHeaderInfo(ptr);
-	showHeaderInfo(point_offset(ptr->next));
 	while (ptr->magic != MAGIC_FREE){
 		free_list_ptr = ptr->next;
 		ptr = point_offset(ptr->next);
@@ -261,7 +258,7 @@ void vlad_free(void *object)
 		temp_ptr = point_offset(temp_link); // points to the next header
 		if (temp_ptr->magic == MAGIC_FREE){
 			if (merge_test(link, temp_link, ptr->size *2) && (count == 0) && (temp_ptr->size == ptr->size)){
-				vlad_merge(link, temp_link); // TODO WHEN VLAD_MERGE IS READY
+				vlad_merge(link, temp_link); 
 				temp_ptr = ptr;
 				temp_link = link;
 				count = -1;
@@ -282,9 +279,9 @@ void vlad_free(void *object)
 			if (merge_test(link, link + ptr->size , ptr->size * 2) && point_offset(link + ptr->size) != NULL \
 					&& ((point_offset(link + ptr->size)->magic == MAGIC_FREE) && point_offset(link + ptr->size)->size == ptr->size)){
 				temp_link = link_next;
-				link_next = ptr_next->next;
-				ptr_next = point_offset(link_next);
 				vlad_merge(link, temp_link);
+				link_next = (link_next == ptr_next->next) ? free_list_ptr : ptr_next->next;
+				ptr_next = point_offset(link_next);
 				temp_link = free_list_ptr;
 				temp_ptr = point_offset(free_list_ptr);
 				count = -1;
@@ -308,10 +305,17 @@ void vlad_free(void *object)
 		count++;
 	}
 	if (link_next == link_prev){
-		ptr->prev = link;
-		ptr->next = link;
+		if (ptr_next != NULL && ptr->size != memory_size){
+			ptr->prev = (ptr_next->prev == link_prev) ? link_prev : ptr_next->prev; // to make sure that there is only one other free region
+			ptr->next = link_next;
+			point_offset(ptr->next)->prev = link;
+			point_offset(ptr->prev)->next = link;
+		} else {
+			ptr->prev = link;
+			ptr->next = link;
+		}
 		ptr->magic = MAGIC_FREE;
-		free_list_ptr = link;
+		free_list_ptr = (ptr->prev < link) ? ptr->prev : link; // check if the previous pointer is smaller then the area being freed
 	} else if (link_next == 0xACDCACDC){ // CASE THAT IS NO FREE REGION IN FRONT OF THE FREED REGION
 		ptr_next = point_offset(ptr_prev->next);
 		ptr->next = ptr_prev->next;
@@ -334,6 +338,7 @@ void vlad_free(void *object)
 		ptr_next->prev = link;
 		ptr->magic = MAGIC_FREE;
 	}
+	/* vlad_stats(); */
 }
 
 
@@ -359,6 +364,9 @@ void vlad_stats(void)
 	int flag = 0;
 	/* int flag2 = 0; */
 
+
+	assert(point_offset(free_list_ptr)->size == 4096);
+	assert(free_list_ptr == 0);
 
 	free_header_t * ptr = point_offset(free_list_ptr);
 	/* free_header_t * ptr2 = (free_header_t *) memory; */
