@@ -54,12 +54,6 @@ static vsize_t memory_size;   // number of bytes malloc'd in memory[]
 
 void vlad_init(u_int32_t size)
 {
-	// dummy statements to keep compiler happy
-	/* memory = NULL; */
-	/* free_list_ptr = (vaddr_t)0; */
-	/* memory_size = 0; */
-	// TODO
-	// remove the above when you implement your code
 	int power = 0;
 	power = power_of_two(size);
 	if ( power < 9 ){
@@ -98,23 +92,36 @@ free_header_t * point_offset(vlink_t offset)
 
 void vlad_merge(vaddr_t region, vaddr_t adj_region)
 {
-	free_header_t * region_ptr = point_offset(region);
+	// REGION IS THE REGION THAT IS BEING FREED
+	// ADJ REGION IS THE REGION NEXT OT IT THAT IT'S FREE AND IT'S BEING MERGED TO REFION
+	free_header_t * region_ptr = point_offset(region); 
 	free_header_t * adj_region_ptr = point_offset(adj_region);
 	free_header_t * ptr_next = point_offset(adj_region_ptr->next);
 	free_header_t * ptr_prev = point_offset(adj_region_ptr->prev);
-	if (region < adj_region){
+
+	if (adj_region_ptr->magic != MAGIC_FREE && adj_region_ptr->magic != MAGIC_ALLOC){
+		fprintf(stderr, "Memory corruption");
+		abort();
+	}
+	if (region_ptr->magic != MAGIC_FREE && region_ptr->magic != MAGIC_ALLOC){
+		fprintf(stderr, "Memory corruption");
+		abort();
+	}
+
+	if (region < adj_region){ // check if the region is before or after adj_region
 		if (free_list_ptr == adj_region){
-			free_list_ptr = (adj_region_ptr->next == free_list_ptr) ? region : adj_region_ptr->next; // in case of the adj region that is being merged
-		}																							// is the only free area 
+			free_list_ptr = (adj_region_ptr->next == free_list_ptr) ? region : adj_region_ptr->next;
+			// in case of the adj region that is being merged
+		}	// is the only free area 
 		ptr_next->prev = adj_region_ptr->prev;
 		ptr_prev->next = adj_region_ptr->next;
-		region_ptr->size = region_ptr->size << 1;
+		region_ptr->size = region_ptr->size << 1; // doubles the region size
 		adj_region_ptr->magic = 0xBFFBFFCD;
 	} else {
 		free_list_ptr = (free_list_ptr == adj_region) ? adj_region_ptr->next : free_list_ptr; // if the adj_region was the free pointer change it to the new region
 		ptr_next->prev = adj_region_ptr->prev;
 		ptr_prev->next = adj_region_ptr->next;
-		adj_region_ptr->size = region_ptr->size << 1;
+		adj_region_ptr->size = region_ptr->size << 1; // doubles the region size
 		adj_region_ptr->magic = MAGIC_ALLOC;
 		region_ptr->magic = 0xBFFBFFCD;
 	}
@@ -171,6 +178,11 @@ void * vlad_malloc(u_int32_t n)
 	vsize_t allocArea = 0; // size of the allocated area
 	vsize_t tempSize = 0; // temporary size used to compare and choose the area to be allocated
 	free_header_t * ptr = point_offset(link);
+
+	if (ptr->magic != MAGIC_FREE && ptr->magic != MAGIC_ALLOC){
+		fprintf(stderr, "Memory corruption");
+		abort();
+	}
 	
 	power = power_of_two(n + sizeof(struct free_list_header));
 	size = 1 << power;
@@ -253,6 +265,10 @@ void vlad_free(void *object)
 	vlink_t temp_link = link;//momery index used to tranverse the list
 	int count = 0; // count to see how far is the other free region;
 	int flag;
+	if (ptr->magic != MAGIC_FREE && ptr->magic != MAGIC_ALLOC){
+		fprintf(stderr, "Memory corruption");
+		abort();
+	}
 	while (((temp_link + temp_ptr->size) < memory_size)){ // loop to find where should 
 		temp_link = temp_link + temp_ptr->size; // memory index to the enxt header
 		temp_ptr = point_offset(temp_link); // points to the next header
@@ -272,6 +288,10 @@ void vlad_free(void *object)
 	}
 	temp_link = free_list_ptr; // sets the memory index to the first free header
 	temp_ptr = point_offset(free_list_ptr);
+	if (temp_ptr->magic != MAGIC_FREE && temp_ptr->magic != MAGIC_ALLOC){
+		fprintf(stderr, "Memory corruption");
+		abort();
+	}
 	flag = (temp_link > link) ? 0 : 1; // check if the free list starts after the freed region
 	count = 0;
 	while (flag == 1){
@@ -365,8 +385,8 @@ void vlad_stats(void)
 	/* int flag2 = 0; */
 
 
-	assert(point_offset(free_list_ptr)->size == 4096);
-	assert(free_list_ptr == 0);
+	/* assert(point_offset(free_list_ptr)->size == 4096); */
+	/* assert(free_list_ptr == 0); */
 
 	free_header_t * ptr = point_offset(free_list_ptr);
 	/* free_header_t * ptr2 = (free_header_t *) memory; */
