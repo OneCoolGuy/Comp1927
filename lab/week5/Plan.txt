@@ -1,0 +1,26 @@
+So the way we are going to tackle the problem is by trying to shorten the range for ours sorts, first by testing if it is stable or not.
+
+Do test for stability we are going to use the way the program handles non numeric values, so inputing a text file with some lines of text and 
+checking if the ouptut is in the same order as the input( for stable sots) or if the output is in a different order(unstable).
+
+That will cut the list of possible sorts in half for each sort. After that we will input each sort with Random inputs of variable sizes, and check for it's
+Big O complexity for random inputs. This will short the psosible sorts even more. With this smaller list of sorts we will input each sorts best and worst case input and by then we expect to have a good ideia of which sort is which. 
+
+
+.
+
+We figured that both our sorts are not stable by using this input:
+
+INPUT													OUTPUT
+
+
+Oi														How Are You?
+How Are You?											ARE YOU StABLE MATE?
+														Oi
+Are you okay?											Are you okay?
+AER YOU StABLE MATE?
+
+
+It shows that for same value inputs it changes it, proving it is not stable.
+
+
